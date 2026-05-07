@@ -10,10 +10,15 @@ keywords = ["zellij", "plugin", "logging", "wasm"]
 categories = ["command-line-utilities"]
 rust-version = "1.78"
 
-[lib]
-# rlib is needed so `cargo test` (which compiles for the host target) can
-# link against the lib; cdylib produces the wasm artifact for Zellij.
-crate-type = ["cdylib", "rlib"]
+# This is a binary crate, not a cdylib. Zellij plugins must be binaries
+# because the WASI runtime expects an `_start` entry to initialise libstd
+# (stdin/stdout fds, panic hook, etc.); a cdylib produces no `_start`, so
+# Zellij loads the wasm but fails to call into it ("could not find exported
+# function"). Pure-data modules under src/ are still unit-testable: `cargo
+# test` on a bin crate compiles the bin's modules and runs their tests.
+[[bin]]
+name = "zellij_logging"
+path = "src/main.rs"
 
 [profile.release]
 opt-level = "z"

@@ -1,7 +1,11 @@
-//! WASI-only plugin glue: the `State` struct, the `ZellijPlugin` impl, and
-//! the `register_plugin!` macro invocation. This module is only compiled on
-//! `target_family = "wasm"`; on the host target, the `zellij-tile` crate is
-//! absent and all of this is skipped.
+//! WASI-only plugin glue: the `State` struct and its `ZellijPlugin` impl.
+//! This module is only compiled on `target_family = "wasm"`; on the host
+//! target, the `zellij-tile` crate is absent and all of this is skipped.
+//!
+//! The `register_plugin!(State)` macro invocation lives in `main.rs` (the
+//! crate root) instead of here, because the macro generates a top-level
+//! `fn main()` that becomes the WASI `_start` entry point. That entry has
+//! to be at the crate root for rustc to wire it up correctly.
 
 use std::collections::BTreeMap;
 
@@ -11,7 +15,7 @@ use crate::config::PluginConfig;
 use crate::tracker::{PaneMeta, SnapshotKind, Tracker};
 
 #[derive(Default)]
-struct State {
+pub struct State {
     config: PluginConfig,
     tracker: Tracker,
     /// Most recent session name we observed via SessionUpdate. Used to fill
@@ -31,8 +35,6 @@ struct State {
     /// spamming the same warning on every pipe message.
     warned_about_permission: bool,
 }
-
-register_plugin!(State);
 
 impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
