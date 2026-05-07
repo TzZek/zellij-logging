@@ -12,10 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Continuous logging via `Event::PaneRenderReport` with viewport-diff append.
 - One-shot visible-viewport snapshot (`snapshot` pipe message).
 - One-shot full-scrollback dump (`dump_full` pipe message).
+- `clear_history` pipe message (opt-in via `enable_clear_history`) that
+  wipes the focused pane's scrollback. Requests `ChangeApplicationState`
+  only when the feature is enabled.
 - Filename templates: `{session}`, `{tab}`, `{pane_id}`, `{pane_title}`,
   `{ts}`, `{date}`, `{time}`.
 - Configurable output directory (defaults to `/host/zellij-logs`).
-- Per-line ISO-8601 timestamps with timezone offset (toggle via config).
+- Per-line ISO-8601 timestamps with millisecond precision and timezone
+  offset, computed per line. Toggle via `timestamp_lines` config.
 - ANSI escape stripping (toggle via config; default on).
 - `auto_start` config option to begin logging the focused pane on plugin load.
 

@@ -2,14 +2,18 @@
 //! hands us in `load()`.
 //!
 //! Configuration keys (all optional):
-//! - `output_dir`         where to write logs. Defaults to `/host/zellij-logs`.
-//! - `filename_template`  see `template` module. Defaults to a sensible per-pane name.
-//! - `timestamp_lines`    bool, prefix each captured line with an ISO timestamp.
-//!                        Defaults to `true` for continuous logging.
-//! - `strip_ansi`         bool, strip ANSI escapes before writing. Defaults `true`.
-//! - `auto_start`         bool, start logging every focused pane on plugin load.
-//!                        Defaults `false`. Off by default because turning it
-//!                        on in shared sessions could surprise other clients.
+//! - `output_dir`            where to write logs. Defaults to `/host/zellij-logs`.
+//! - `filename_template`     see `template` module. Defaults to a sensible per-pane name.
+//! - `timestamp_lines`       bool, prefix each captured line with an ISO timestamp.
+//!                           Defaults to `true` for continuous logging.
+//! - `strip_ansi`            bool, strip ANSI escapes before writing. Defaults `true`.
+//! - `auto_start`            bool, start logging every focused pane on plugin load.
+//!                           Defaults `false`. Off by default because turning it
+//!                           on in shared sessions could surprise other clients.
+//! - `enable_clear_history`  bool, expose the `clear_history` pipe message
+//!                           that wipes the focused pane's scrollback. Off by
+//!                           default because it requires `ChangeApplicationState`,
+//!                           which broadens the plugin's permission scope.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -24,6 +28,7 @@ pub struct PluginConfig {
     pub timestamp_lines: bool,
     pub strip_ansi: bool,
     pub auto_start: bool,
+    pub enable_clear_history: bool,
 }
 
 impl Default for PluginConfig {
@@ -34,6 +39,7 @@ impl Default for PluginConfig {
             timestamp_lines: true,
             strip_ansi: true,
             auto_start: false,
+            enable_clear_history: false,
         }
     }
 }
@@ -61,6 +67,9 @@ impl PluginConfig {
         }
         if let Some(v) = map.get("auto_start").and_then(parse_bool) {
             cfg.auto_start = v;
+        }
+        if let Some(v) = map.get("enable_clear_history").and_then(parse_bool) {
+            cfg.enable_clear_history = v;
         }
         cfg
     }
@@ -92,6 +101,13 @@ mod tests {
         assert!(cfg.timestamp_lines);
         assert!(cfg.strip_ansi);
         assert!(!cfg.auto_start);
+        assert!(!cfg.enable_clear_history);
+    }
+
+    #[test]
+    fn clear_history_opts_in() {
+        let cfg = PluginConfig::from_map(&map(&[("enable_clear_history", "true")]));
+        assert!(cfg.enable_clear_history);
     }
 
     #[test]

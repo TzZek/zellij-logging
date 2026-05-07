@@ -37,7 +37,14 @@ register_plugin!(State);
 impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         self.config = PluginConfig::from_map(&configuration);
-        request_permission(&[PermissionType::ReadPaneContents]);
+        // Always need ReadPaneContents. Only ask for ChangeApplicationState
+        // if the user opted into clear_history; that permission grants
+        // broad pane/tab/UI control so we don't request it unnecessarily.
+        let mut perms = vec![PermissionType::ReadPaneContents];
+        if self.config.enable_clear_history {
+            perms.push(PermissionType::ChangeApplicationState);
+        }
+        request_permission(&perms);
         subscribe(&[
             EventType::PaneRenderReport,
             EventType::SessionUpdate,
@@ -50,6 +57,9 @@ impl ZellijPlugin for State {
             self.config.output_dir.display(),
             self.config.filename_template
         ));
+        if self.config.enable_clear_history {
+            self.push_status("clear_history pipe enabled".to_owned());
+        }
     }
 
     fn update(&mut self, event: Event) -> bool {
@@ -134,6 +144,10 @@ impl ZellijPlugin for State {
             "dump_full" => match self.snapshot_focused(SnapshotKind::Full) {
                 Ok(path) => self.push_status(format!("full dump written: {}", path.display())),
                 Err(msg) => self.push_status(format!("dump_full failed: {msg}")),
+            },
+            "clear_history" => match self.clear_focused_history() {
+                Ok(msg) => self.push_status(msg),
+                Err(msg) => self.push_status(format!("clear_history failed: {msg}")),
             },
             other => {
                 self.push_status(format!("unknown pipe message: {other}"));
@@ -246,6 +260,24 @@ impl State {
         let meta = owned.as_ref();
         let path = self.tracker.start(key, &self.config, &meta)?;
         Ok(format!("started logging {pane_id} -> {}", path.display()))
+    }
+
+    fn clear_focused_history(&mut self) -> Result<String, String> {
+        if !self.config.enable_clear_history {
+            return Err(
+                "clear_history is disabled; set enable_clear_history true in plugin config"
+                    .to_owned(),
+            );
+        }
+        let (pane_id, _) = self.focused_meta()?;
+        clear_screen_for_pane_id(pane_id);
+        // The next render report for this pane will look unrelated to the
+        // last viewport we have on file, so the diff would dump a wall of
+        // blank lines. Forget the last viewport for the cleared pane so the
+        // next report is treated as a fresh capture.
+        let key = format!("{pane_id}");
+        self.tracker.reset_viewport(&key);
+        Ok(format!("cleared scrollback for {pane_id}"))
     }
 
     fn snapshot_focused(&mut self, kind: SnapshotKind) -> Result<std::path::PathBuf, String> {

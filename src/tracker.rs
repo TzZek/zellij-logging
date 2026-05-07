@@ -96,6 +96,16 @@ impl Tracker {
         Some(removed.log_path)
     }
 
+    /// Forget the last-seen viewport for `pane`. Call this after issuing a
+    /// pane-clear so the next render report is diffed against an empty
+    /// baseline instead of producing a flood of fake "scrolled-out" lines.
+    /// No-op if the pane is not tracked.
+    pub fn reset_viewport(&mut self, pane: &str) {
+        if let Some(tp) = self.panes.get_mut(pane) {
+            tp.last_viewport.clear();
+        }
+    }
+
     /// Apply a render-report viewport to a tracked pane: diff and append.
     /// No-op if the pane is not tracked.
     pub fn on_render_report(
@@ -236,21 +246,28 @@ fn diff_new_lines<'a>(prev: &[String], curr: &'a [String]) -> Vec<&'a str> {
     curr[k..].iter().map(String::as_str).collect()
 }
 
+/// ISO-8601 timestamp format used for per-line prefixes. Millisecond
+/// precision so log entries from the same render batch don't all collapse
+/// onto the same second, and so logs correlate cleanly with tools that emit
+/// sub-second timestamps (Burp, responder, etc.).
+const LINE_TIMESTAMP_FMT: &str = "%Y-%m-%dT%H:%M:%S%.3f%:z";
+
 /// Format an iterator of lines into a single string blob according to config:
 /// optional ANSI strip, optional timestamp prefix, trailing-whitespace trim.
+///
+/// When timestamp prefixes are enabled, each non-blank line gets a fresh
+/// `Local::now()` so the timestamps reflect the actual write moment per line
+/// rather than a single shared "batch" stamp.
 fn format_lines<'a, I>(lines: I, config: &PluginConfig) -> String
 where
     I: Iterator<Item = &'a str>,
 {
     let mut out = String::new();
-    let now = Local::now().format("%Y-%m-%dT%H:%M:%S%:z").to_string();
     for line in lines {
         let line = line.trim_end();
-        // Skip blank trailing rows (terminals pad the viewport with empty
-        // lines). Keep deliberately empty lines that are followed by content
-        // by virtue of how we iterate; this just trims the tail.
         if line.is_empty() {
-            // Still preserve as a blank line so paragraph breaks survive.
+            // Preserve blank lines so paragraph breaks survive, but don't
+            // bother timestamping them: a stamp on an empty line is noise.
             out.push('\n');
             continue;
         }
@@ -260,7 +277,9 @@ where
             line.to_owned()
         };
         if config.timestamp_lines {
-            out.push_str(&now);
+            // Per-line `now` so each line's stamp reflects when it was
+            // written, not a single batch stamp.
+            out.push_str(&Local::now().format(LINE_TIMESTAMP_FMT).to_string());
             out.push(' ');
         }
         out.push_str(&cleaned);
@@ -346,6 +365,33 @@ mod tests {
         assert!(
             out.starts_with(&format!("{}", Local::now().format("%Y"))),
             "timestamp prefix missing: {out}"
+        );
+    }
+
+    #[test]
+    fn format_timestamp_has_millisecond_precision() {
+        let cfg = PluginConfig {
+            timestamp_lines: true,
+            strip_ansi: false,
+            ..PluginConfig::default()
+        };
+        let out = format_lines(["hello"].into_iter(), &cfg);
+        // Expect "YYYY-MM-DDTHH:MM:SS.NNN+HHMM hello\n", so the first 23
+        // chars after the date are the time including `.NNN`. Look for the
+        // millisecond decimal point at the right column.
+        // Format: 2026-05-04T14:30:45.123+02:00
+        //         ^^^^^^^^^^^^^^^^^^^^ ^
+        //         0                  19 20 (the dot)
+        let dot_idx = 19;
+        assert_eq!(
+            &out[dot_idx..dot_idx + 1],
+            ".",
+            "no millisecond separator in {out}"
+        );
+        // Three digits after the dot.
+        assert!(
+            out[dot_idx + 1..dot_idx + 4].chars().all(|c| c.is_ascii_digit()),
+            "milliseconds not three digits in {out}"
         );
     }
 

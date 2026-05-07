@@ -6,8 +6,21 @@ which is the de-facto session-logging plugin in the tmux ecosystem.
 
 Built for pentesters, red teamers, sysadmins, and anyone who wants a paper
 trail of what happened in a pane. Continuous logging, one-shot viewport
-snapshots, and full scrollback dumps. ISO-8601 per-line timestamps for
-correlation with Burp, responder, SIEM, etc.
+snapshots, full scrollback dumps, and a scrollback-clear convenience.
+Per-line ISO-8601 timestamps with millisecond precision for correlation
+with Burp, responder, SIEM, etc.
+
+## Parity with tmux-logging
+
+| `tmux-logging` feature                        | This plugin                            |
+| --------------------------------------------- | -------------------------------------- |
+| Toggle continuous logging                     | `toggle` pipe message                  |
+| Save visible viewport (screen capture)        | `snapshot` pipe message                |
+| Save complete history                         | `dump_full` pipe message               |
+| Clear pane history                            | `clear_history` pipe (opt-in)          |
+| `@logging-path`                               | `output_dir` config                    |
+| `@logging-filename`                           | `filename_template` config             |
+| Strip ANSI via external `ansifilter`          | Built-in `strip_ansi` config           |
 
 ## Requirements
 
@@ -69,11 +82,12 @@ After editing the config, restart Zellij or run `zellij action launch-or-focus-p
 
 ## Usage
 
-| Keybind          | Pipe message  | What it does                                                                 |
-| ---------------- | ------------- | ---------------------------------------------------------------------------- |
-| `Ctrl+Shift+P`   | `toggle`      | Start or stop continuous logging for the focused pane.                       |
-| `Alt+P`          | `snapshot`    | Write the current viewport (visible text) to a one-shot file.                |
-| `Alt+Shift+P`    | `dump_full`   | Write the entire scrollback (above + viewport + below) to a one-shot file.  |
+| Keybind          | Pipe message     | What it does                                                                 |
+| ---------------- | ---------------- | ---------------------------------------------------------------------------- |
+| `Ctrl+Shift+P`   | `toggle`         | Start or stop continuous logging for the focused pane.                       |
+| `Alt+P`          | `snapshot`       | Write the current viewport (visible text) to a one-shot file.                |
+| `Alt+Shift+P`    | `dump_full`      | Write the entire scrollback (above + viewport + below) to a one-shot file.  |
+| `Alt+C`          | `clear_history`  | Clear the focused pane's scrollback. Requires `enable_clear_history true`.  |
 
 Continuous logging diffs each `PaneRenderReport` against the previous viewport
 and appends only the new lines, so the output looks roughly like a real-time
@@ -84,11 +98,12 @@ log; toggle logging off for those panes.
 
 | Key                 | Type    | Default                                       | Notes                                                                                       |
 | ------------------- | ------- | --------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `output_dir`        | path    | `/host/zellij-logs`                           | Directory the plugin writes to. Must be reachable through a Zellij WASI mount (see below). |
-| `filename_template` | string  | `{date}/{session}-{pane_id}-{ts}.log`         | Placeholders are substituted; non-placeholder text is preserved literally.                  |
-| `timestamp_lines`   | bool    | `true`                                        | Prefix every captured line with `YYYY-MM-DDTHH:MM:SS+ZZZZ`. Off for one-shot snapshots.    |
-| `strip_ansi`        | bool    | `true`                                        | Strip CSI/OSC/2-byte escapes before writing.                                                |
-| `auto_start`        | bool    | `false`                                       | If true, start logging the focused pane on plugin load (after permission is granted).       |
+| `output_dir`            | path    | `/host/zellij-logs`                           | Directory the plugin writes to. Must be reachable through a Zellij WASI mount (see below). |
+| `filename_template`     | string  | `{date}/{session}-{pane_id}-{ts}.log`         | Placeholders are substituted; non-placeholder text is preserved literally.                  |
+| `timestamp_lines`       | bool    | `true`                                        | Prefix every captured line with `YYYY-MM-DDTHH:MM:SS.sss+ZZZZ` (millisecond precision, computed per line). Off for one-shot snapshots. |
+| `strip_ansi`            | bool    | `true`                                        | Strip CSI/OSC/2-byte escapes before writing.                                                |
+| `auto_start`            | bool    | `false`                                       | If true, start logging the focused pane on plugin load (after permission is granted).       |
+| `enable_clear_history`  | bool    | `false`                                       | If true, exposes the `clear_history` pipe and requests `ChangeApplicationState` permission. |
 
 ### Filename template placeholders
 
@@ -132,10 +147,17 @@ Default `output_dir` is `/host/zellij-logs`, which means logs land in
 
 ## Permissions
 
-The plugin requests a single permission on load:
+The plugin always requests:
 
 - **`ReadPaneContents`**: required to receive `PaneRenderReport` events and
   to call `get_pane_scrollback()`. Without it, no logging happens.
+
+Conditionally (only if `enable_clear_history true` is set in config):
+
+- **`ChangeApplicationState`**: required by `clear_screen_for_pane_id`, the
+  Zellij API used to wipe a pane's scrollback. This permission is broader
+  than the clear feature alone needs (it grants pane/tab/UI control), which
+  is why the feature is opt-in.
 
 Zellij prompts the user the first time the plugin is loaded. Granted decisions
 are remembered per-plugin in Zellij's permission cache.
@@ -143,9 +165,8 @@ are remembered per-plugin in Zellij's permission cache.
 The plugin does **not** request any of these:
 
 - `RunCommands`, `OpenFiles`, `WriteToStdin`: it never executes commands or
-  modifies pane contents.
+  modifies pane stdin.
 - `WebAccess`: no network traffic.
-- `ChangeApplicationState`: never resizes, focuses, or closes panes.
 - `FullHdAccess`: file I/O is confined to the WASI mounts.
 
 ## Status indicator

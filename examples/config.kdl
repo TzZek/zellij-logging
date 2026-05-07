@@ -27,6 +27,12 @@ plugins {
         // If true, start logging the focused pane on plugin load. Off by
         // default to avoid surprising other clients in shared sessions.
         auto_start         false
+
+        // If true, expose the `clear_history` pipe message that wipes the
+        // focused pane's scrollback. Requires the ChangeApplicationState
+        // permission, which is broader than the clear feature alone needs;
+        // off by default for that reason.
+        enable_clear_history false
     }
 }
 
@@ -51,6 +57,14 @@ keybinds {
         bind "Alt Shift p" {
             MessagePlugin "zellij-logging" {
                 name "dump_full"
+            }
+        }
+
+        // Clear the focused pane's scrollback. Only takes effect if
+        // `enable_clear_history true` is set in the plugin config above.
+        bind "Alt c" {
+            MessagePlugin "zellij-logging" {
+                name "clear_history"
             }
         }
     }
