@@ -1,0 +1,57 @@
+// Drop-in fragment for ~/.config/zellij/config.kdl.
+//
+// Either include this file from your main config, or paste these blocks into
+// it. Adjust paths and key bindings to taste.
+
+plugins {
+    zellij-logging location="file:~/.config/zellij/plugins/zellij_logging.wasm" {
+        // Where logs go. Must be reachable through a Zellij WASI mount:
+        //   /host  - directory Zellij was launched from
+        //   /data  - per-plugin scratch (cleared on plugin unload)
+        //   /cache - per-plugin persistent cache
+        //   /tmp   - tmpfs
+        output_dir         "/host/zellij-logs"
+
+        // Filename template. Placeholders: {session} {tab} {pane_id}
+        // {pane_title} {ts} {date} {time}. Subdirectories from `/` in the
+        // template are created automatically.
+        filename_template  "{date}/{session}-{pane_id}-{ts}.log"
+
+        // Prefix every captured line with an ISO-8601 timestamp. Useful for
+        // correlating output with external tools (Burp, responder, SIEM).
+        timestamp_lines    true
+
+        // Strip ANSI escape sequences before writing.
+        strip_ansi         true
+
+        // If true, start logging the focused pane on plugin load. Off by
+        // default to avoid surprising other clients in shared sessions.
+        auto_start         false
+    }
+}
+
+keybinds {
+    shared_except "locked" {
+        // Toggle continuous logging for the focused pane.
+        bind "Ctrl Shift p" {
+            MessagePlugin "zellij-logging" {
+                name "toggle"
+            }
+        }
+
+        // Save the visible viewport as a one-shot file.
+        bind "Alt p" {
+            MessagePlugin "zellij-logging" {
+                name "snapshot"
+            }
+        }
+
+        // Save the entire scrollback (above + viewport + below) as a
+        // one-shot file. Useful at the end of a long shell session.
+        bind "Alt Shift p" {
+            MessagePlugin "zellij-logging" {
+                name "dump_full"
+            }
+        }
+    }
+}

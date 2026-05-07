@@ -1,0 +1,35 @@
+[package]
+name = "zellij-logging"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A Zellij plugin that logs pane output to disk, modeled on tmux-plugins/tmux-logging."
+repository = "https://github.com/tzzek/zellij-logging"
+readme = "README.md"
+keywords = ["zellij", "plugin", "logging", "wasm"]
+categories = ["command-line-utilities"]
+rust-version = "1.78"
+
+[lib]
+# rlib is needed so `cargo test` (which compiles for the host target) can
+# link against the lib; cdylib produces the wasm artifact for Zellij.
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "alloc"] }
+
+# zellij-tile pulls in WASI host imports (`host_run_plugin_command`, etc.)
+# that don't resolve on the host target. Gating it to wasm targets keeps
+# `cargo test` linkable while the wasm release build still gets the crate.
+[target.'cfg(target_family = "wasm")'.dependencies]
+zellij-tile = "0.44"
+
+[dev-dependencies]
+# Unit-test helpers only. Tests run on the host target, not wasm.

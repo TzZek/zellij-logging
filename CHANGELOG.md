@@ -1,0 +1,24 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- Initial release. Modeled on `tmux-plugins/tmux-logging`.
+- Continuous logging via `Event::PaneRenderReport` with viewport-diff append.
+- One-shot visible-viewport snapshot (`snapshot` pipe message).
+- One-shot full-scrollback dump (`dump_full` pipe message).
+- Filename templates: `{session}`, `{tab}`, `{pane_id}`, `{pane_title}`,
+  `{ts}`, `{date}`, `{time}`.
+- Configurable output directory (defaults to `/host/zellij-logs`).
+- Per-line ISO-8601 timestamps with timezone offset (toggle via config).
+- ANSI escape stripping (toggle via config; default on).
+- `auto_start` config option to begin logging the focused pane on plugin load.
+
+### Requires
+- Zellij 0.44.0 or newer (for `ReadPaneContents` permission and the
+  `PaneRenderReport` event introduced in zellij-org/zellij#4465).
