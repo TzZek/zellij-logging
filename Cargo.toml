@@ -28,8 +28,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "allo
 # zellij-tile pulls in WASI host imports (`host_run_plugin_command`, etc.)
 # that don't resolve on the host target. Gating it to wasm targets keeps
 # `cargo test` linkable while the wasm release build still gets the crate.
+# Pin to 0.44.2 because the plugin ABI evolves between point releases and a
+# mismatch surfaces as "could not find exported function" at load time.
 [target.'cfg(target_family = "wasm")'.dependencies]
-zellij-tile = "0.44"
+zellij-tile = "=0.44.2"
 
 [dev-dependencies]
 # Unit-test helpers only. Tests run on the host target, not wasm.
