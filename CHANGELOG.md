@@ -24,5 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `auto_start` config option to begin logging the focused pane on plugin load.
 
 ### Requires
-- Zellij 0.44.0 or newer (for `ReadPaneContents` permission and the
-  `PaneRenderReport` event introduced in zellij-org/zellij#4465).
+- Zellij 0.44.2 specifically. The plugin ABI is auto-generated from
+  protobuf and changes between point releases; `zellij-tile` is pinned
+  to `=0.44.2` in `Cargo.toml`. To upgrade Zellij, bump the pin to match
+  and rebuild. Zellij 0.44.0 / 0.44.1 will load the wasm but fail at
+  plugin-init with `could not find exported function`.

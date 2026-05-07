@@ -24,9 +24,14 @@ with Burp, responder, SIEM, etc.
 
 ## Requirements
 
-- **Zellij 0.44.0 or newer.** This plugin depends on the `ReadPaneContents`
-  permission and the `PaneRenderReport` event added in
-  [zellij-org/zellij#4465](https://github.com/zellij-org/zellij/pull/4465).
+- **Zellij 0.44.2** (or whatever version `zellij-tile` is pinned to in
+  `Cargo.toml`). This plugin depends on the `ReadPaneContents` permission
+  and the `PaneRenderReport` event added in
+  [zellij-org/zellij#4465](https://github.com/zellij-org/zellij/pull/4465),
+  which require Zellij 0.44.0 or newer. The plugin ABI is auto-generated and
+  changes between point releases, so the `zellij-tile` version in
+  `Cargo.toml` must match your Zellij version exactly. If you upgrade Zellij,
+  bump the pin and rebuild (see Troubleshooting).
 - A Rust toolchain with the `wasm32-wasip1` target if you're building from source.
 
 ## Install
@@ -192,6 +197,43 @@ The status panel is informational; you don't need to keep it open for logging
 to work.
 
 ## Troubleshooting
+
+**Plugin fails to load with `could not find exported function` / `failed to
+load plugin from instance` in `~/.cache/zellij/.../zellij.log` or
+`/tmp/zellij-*/zellij-log/zellij.log`.**
+
+This is an ABI mismatch between the running Zellij and the `zellij-tile`
+crate the plugin was built against. Zellij's plugin command and event ABI
+is regenerated from `.proto` files and changes between point releases, so
+the tile crate version must match the host Zellij version exactly.
+
+To fix:
+
+1. Find your Zellij version: `zellij --version`.
+2. Edit `Cargo.toml` so `zellij-tile = "=X.Y.Z"` matches that version
+   exactly (note the leading `=` to pin instead of allowing semver bumps).
+3. Rebuild and reinstall:
+   ```bash
+   cargo update -p zellij-tile
+   cargo build --release --target wasm32-wasip1
+   cp target/wasm32-wasip1/release/zellij_logging.wasm \
+      ~/.config/zellij/plugins/
+   ```
+4. Clear Zellij's plugin cache and fully restart:
+   ```bash
+   rm -rf ~/.cache/zellij/file:
+   zellij kill-all-sessions --yes
+   zellij --session logtest
+   ```
+
+If `cargo search zellij-tile` doesn't yet show a version matching your
+Zellij, you may need to depend on the upstream git repo at the right tag
+until a release is published:
+
+```toml
+[target.'cfg(target_family = "wasm")'.dependencies]
+zellij-tile = { git = "https://github.com/zellij-org/zellij", tag = "vX.Y.Z" }
+```
 
 **No log files appear.**
 - Check `~/.config/zellij/permissions.kdl` (or run the plugin once and approve
