@@ -46,12 +46,17 @@ impl ZellijPlugin for State {
         //   {session}, {tab}, and {pane_title} placeholders in filename
         //   templates. Without it the plugin still logs, but to filenames
         //   like `unknown-session-tab-pane.log` instead of meaningful ones.
+        // - ReadCliPipes: required for cli_pipe_output() and
+        //   unblock_cli_pipe_input(). Without it, `zellij pipe ... --name X`
+        //   blocks forever because the plugin can't tell Zellij the pipe is
+        //   done.
         // - ChangeApplicationState: only requested when the user opts into
         //   `clear_history`, since that permission is broader than the
         //   feature alone needs (it also grants pane/tab/UI control).
         let mut perms = vec![
             PermissionType::ReadPaneContents,
             PermissionType::ReadApplicationState,
+            PermissionType::ReadCliPipes,
         ];
         if self.config.enable_clear_history {
             perms.push(PermissionType::ChangeApplicationState);
