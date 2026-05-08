@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<basename>.clean.log` for each continuous log: no per-line timestamps,
   ANSI escapes always stripped. The primary timestamped log is unaffected;
   this is purely a readable companion file.
+- `visual_indicator` config option (default `true`) that calls
+  `highlight_and_unhighlight_panes` to mark tracked panes when toggled
+  on, and unhighlights them when toggled off. Auto-requests
+  `ChangeApplicationState` permission only when this option (or
+  `enable_clear_history`) is enabled.
 
 ### Requires
 - Zellij 0.44.2 specifically. The plugin ABI is auto-generated from

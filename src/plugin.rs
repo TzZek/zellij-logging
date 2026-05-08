@@ -47,15 +47,17 @@ impl ZellijPlugin for State {
         //   unblock_cli_pipe_input(). Without it, `zellij pipe ... --name X`
         //   blocks forever because the plugin can't tell Zellij the pipe is
         //   done.
-        // - ChangeApplicationState: only requested when the user opts into
-        //   `clear_history`, since that permission is broader than the
-        //   feature alone needs (it also grants pane/tab/UI control).
+        // - ChangeApplicationState: required by `clear_history` (which
+        //   wipes a pane's scrollback) and by `visual_indicator` (which
+        //   highlights tracked panes). The permission is broader than
+        //   either feature alone needs, so we only request it when at
+        //   least one of those features is enabled.
         let mut perms = vec![
             PermissionType::ReadPaneContents,
             PermissionType::ReadApplicationState,
             PermissionType::ReadCliPipes,
         ];
-        if self.config.enable_clear_history {
+        if self.config.enable_clear_history || self.config.visual_indicator {
             perms.push(PermissionType::ChangeApplicationState);
         }
         request_permission(&perms);
@@ -321,6 +323,9 @@ impl State {
                 .tracker
                 .stop(&key)
                 .ok_or_else(|| "pane was not tracked".to_owned())?;
+            if self.config.visual_indicator {
+                highlight_and_unhighlight_panes(vec![], vec![pane_id]);
+            }
             return Ok(format!("stopped logging {pane_id} ({})", path.display()));
         }
         // Capture the current full scrollback as the baseline so the log only
@@ -335,6 +340,9 @@ impl State {
         let path = self
             .tracker
             .start(key, &self.config, &meta, baseline)?;
+        if self.config.visual_indicator {
+            highlight_and_unhighlight_panes(vec![pane_id], vec![]);
+        }
         Ok(format!("started logging {pane_id} -> {}", path.display()))
     }
 

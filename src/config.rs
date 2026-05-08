@@ -19,6 +19,11 @@
 //!                           suitable for grepping and human reading. Default
 //!                           `true`. Only affects continuous logging, not
 //!                           one-shot snapshots.
+//! - `visual_indicator`      bool, highlight panes that are currently being
+//!                           continuously logged so the user has a visible
+//!                           signal that recording is active. Default `true`.
+//!                           Requires `ChangeApplicationState` (auto-requested
+//!                           when the option is enabled).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -35,6 +40,7 @@ pub struct PluginConfig {
     pub auto_start: bool,
     pub enable_clear_history: bool,
     pub clean_log: bool,
+    pub visual_indicator: bool,
 }
 
 impl Default for PluginConfig {
@@ -47,6 +53,7 @@ impl Default for PluginConfig {
             auto_start: false,
             enable_clear_history: false,
             clean_log: true,
+            visual_indicator: true,
         }
     }
 }
@@ -80,6 +87,9 @@ impl PluginConfig {
         }
         if let Some(v) = map.get("clean_log").and_then(parse_bool) {
             cfg.clean_log = v;
+        }
+        if let Some(v) = map.get("visual_indicator").and_then(parse_bool) {
+            cfg.visual_indicator = v;
         }
         cfg
     }

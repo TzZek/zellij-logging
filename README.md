@@ -89,10 +89,14 @@ After editing the config, restart Zellij or run `zellij action launch-or-focus-p
 
 | Keybind          | Pipe message     | What it does                                                                 |
 | ---------------- | ---------------- | ---------------------------------------------------------------------------- |
-| `Ctrl+Shift+P`   | `toggle`         | Start or stop continuous logging for the focused pane.                       |
-| `Alt+P`          | `snapshot`       | Write the current viewport (visible text) to a one-shot file.                |
-| `Alt+Shift+P`    | `dump_full`      | Write the entire scrollback (above + viewport + below) to a one-shot file.  |
-| `Alt+C`          | `clear_history`  | Clear the focused pane's scrollback. Requires `enable_clear_history true`.  |
+| `Alt+Shift+L`    | `toggle`         | Start or stop continuous logging for the focused pane. (L = log.)            |
+| `Alt+Shift+S`    | `snapshot`       | Write the current viewport (visible text) to a one-shot file.                |
+| `Alt+Shift+D`    | `dump_full`      | Write the entire scrollback (above + viewport + below) to a one-shot file.  |
+| `Alt+Shift+C`    | `clear_history`  | Clear the focused pane's scrollback. Requires `enable_clear_history true`.  |
+
+`Alt+Shift+letter` was chosen because it is unbound by default in Zellij,
+ghostty/alacritty/kitty, and Hyprland, and (unlike `Ctrl+Alt+P`) doesn't
+trip fcitx5's preedit toggle.
 
 Continuous logging works like this on each `PaneRenderReport`:
 
@@ -132,6 +136,7 @@ workloads, `script(1)` started inside the pane is the right tool.
 | `auto_start`            | bool    | `false`                                       | If true, start logging the focused pane on plugin load (after permission is granted).       |
 | `enable_clear_history`  | bool    | `false`                                       | If true, exposes the `clear_history` pipe and requests `ChangeApplicationState` permission. |
 | `clean_log`             | bool    | `true`                                        | Also write a sibling `<basename>.clean.log` with no per-line timestamps and ANSI escapes always stripped. Useful as a human-readable companion to the timestamped primary log. |
+| `visual_indicator`      | bool    | `true`                                        | Highlight panes that are currently being continuously logged. Auto-requests `ChangeApplicationState` permission. Set to `false` to skip the highlight and avoid that permission. |
 
 ### Filename template placeholders
 

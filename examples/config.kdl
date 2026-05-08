@@ -40,20 +40,30 @@ plugins {
         // tail or grep without the timestamps cluttering output. The
         // primary timestamped log is unaffected by this setting.
         clean_log true
+
+        // If true, highlight panes that are currently being continuously
+        // logged so you can see at a glance which ones are recording.
+        // Auto-requests ChangeApplicationState (also needed by
+        // `enable_clear_history`); the permission scope is broader than
+        // the highlight alone needs but is cheap to grant once.
+        visual_indicator true
     }
 }
 
 keybinds {
     shared_except "locked" {
         // Toggle continuous logging for the focused pane.
-        bind "Ctrl Shift p" {
+        // Mnemonic: L = log. Alt+Shift avoids fcitx5's Ctrl+Alt+P
+        // (preedit) and most terminal/window-manager defaults.
+        bind "Alt Shift l" {
             MessagePlugin "zellij-logging" {
                 name "toggle"
             }
         }
 
         // Save the visible viewport as a one-shot file.
-        bind "Alt p" {
+        // Mnemonic: S = snapshot.
+        bind "Alt Shift s" {
             MessagePlugin "zellij-logging" {
                 name "snapshot"
             }
@@ -61,7 +71,8 @@ keybinds {
 
         // Save the entire scrollback (above + viewport + below) as a
         // one-shot file. Useful at the end of a long shell session.
-        bind "Alt Shift p" {
+        // Mnemonic: D = dump.
+        bind "Alt Shift d" {
             MessagePlugin "zellij-logging" {
                 name "dump_full"
             }
@@ -69,7 +80,7 @@ keybinds {
 
         // Clear the focused pane's scrollback. Only takes effect if
         // `enable_clear_history true` is set in the plugin config above.
-        bind "Alt c" {
+        bind "Alt Shift c" {
             MessagePlugin "zellij-logging" {
                 name "clear_history"
             }
