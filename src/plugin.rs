@@ -41,6 +41,13 @@ pub struct State {
 impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         self.config = PluginConfig::from_map(&configuration);
+        // We don't want the plugin's own pane forced into the user's layout
+        // every time the session boots or a keybind is pressed. Hide on
+        // load and mark ourselves unselectable so Tab cycling skips us.
+        // Users can still bring up the status pane on demand via
+        // `zellij action launch-or-focus-plugin --floating zellij-logging`.
+        hide_self();
+        set_selectable(false);
         // - ReadPaneContents: required for PaneRenderReport events and
         //   get_pane_scrollback() (the core logging capability).
         // - ReadApplicationState: required for SessionUpdate / TabUpdate /
@@ -229,9 +236,19 @@ impl ZellijPlugin for State {
         // waiting for our response. Send the reply back as the pipe's
         // output and explicitly unblock so the CLI sees EOF and exits.
         // Without this, `zellij pipe ... --name toggle` hangs indefinitely.
-        if let PipeSource::Cli(pipe_id) = &pipe_message.source {
-            cli_pipe_output(pipe_id, &format!("{reply}\n"));
-            unblock_cli_pipe_input(pipe_id);
+        match &pipe_message.source {
+            PipeSource::Cli(pipe_id) => {
+                cli_pipe_output(pipe_id, &format!("{reply}\n"));
+                unblock_cli_pipe_input(pipe_id);
+            },
+            PipeSource::Keybind => {
+                // Zellij will pop our pane forward when dispatching a
+                // MessagePlugin keybind. Hide ourselves immediately after
+                // handling so the keybind feels like a fire-and-forget
+                // action instead of toggling our status pane open.
+                hide_self();
+            },
+            _ => {},
         }
         // Only re-render the plugin pane if it's actually visible. Otherwise
         // returning true here would pop the plugin pane forward every time a
