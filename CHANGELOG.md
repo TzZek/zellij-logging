@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offset, computed per line. Toggle via `timestamp_lines` config.
 - ANSI escape stripping (toggle via config; default on).
 - `auto_start` config option to begin logging the focused pane on plugin load.
+- `clean_log` config option (default `true`) that writes a sibling
+  `<basename>.clean.log` for each continuous log: no per-line timestamps,
+  ANSI escapes always stripped. The primary timestamped log is unaffected;
+  this is purely a readable companion file.
 
 ### Requires
 - Zellij 0.44.2 specifically. The plugin ABI is auto-generated from

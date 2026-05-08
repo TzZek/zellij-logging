@@ -14,6 +14,11 @@
 //!                           that wipes the focused pane's scrollback. Off by
 //!                           default because it requires `ChangeApplicationState`,
 //!                           which broadens the plugin's permission scope.
+//! - `clean_log`             bool, also write a sibling `.clean.log` file with
+//!                           no per-line timestamps and ANSI escapes stripped,
+//!                           suitable for grepping and human reading. Default
+//!                           `true`. Only affects continuous logging, not
+//!                           one-shot snapshots.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -29,6 +34,7 @@ pub struct PluginConfig {
     pub strip_ansi: bool,
     pub auto_start: bool,
     pub enable_clear_history: bool,
+    pub clean_log: bool,
 }
 
 impl Default for PluginConfig {
@@ -40,6 +46,7 @@ impl Default for PluginConfig {
             strip_ansi: true,
             auto_start: false,
             enable_clear_history: false,
+            clean_log: true,
         }
     }
 }
@@ -70,6 +77,9 @@ impl PluginConfig {
         }
         if let Some(v) = map.get("enable_clear_history").and_then(parse_bool) {
             cfg.enable_clear_history = v;
+        }
+        if let Some(v) = map.get("clean_log").and_then(parse_bool) {
+            cfg.clean_log = v;
         }
         cfg
     }

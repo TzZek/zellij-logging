@@ -131,6 +131,7 @@ workloads, `script(1)` started inside the pane is the right tool.
 | `strip_ansi`            | bool    | `true`                                        | Strip CSI/OSC/2-byte escapes before writing.                                                |
 | `auto_start`            | bool    | `false`                                       | If true, start logging the focused pane on plugin load (after permission is granted).       |
 | `enable_clear_history`  | bool    | `false`                                       | If true, exposes the `clear_history` pipe and requests `ChangeApplicationState` permission. |
+| `clean_log`             | bool    | `true`                                        | Also write a sibling `<basename>.clean.log` with no per-line timestamps and ANSI escapes always stripped. Useful as a human-readable companion to the timestamped primary log. |
 
 ### Filename template placeholders
 

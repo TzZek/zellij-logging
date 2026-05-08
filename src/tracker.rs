@@ -22,7 +22,11 @@ use crate::template::TemplateContext;
 
 /// Bookkeeping for a single pane that is being continuously logged.
 pub struct TrackedPane {
+    /// Primary log path. Honours `timestamp_lines` and `strip_ansi` config.
     pub log_path: PathBuf,
+    /// Optional sibling "clean" log path (no timestamps, ANSI always stripped).
+    /// Set when `clean_log` config is true.
+    pub clean_path: Option<PathBuf>,
     /// The last full content (lines_above_viewport ++ viewport) we saw, so
     /// we can compute a diff and only append the new tail on each update.
     /// Compared to viewport-only, this catches every line that ever passed
@@ -82,10 +86,22 @@ impl Tracker {
         );
         append_block(&log_path, &header)
             .map_err(|e| format!("write header to {}: {e}", log_path.display()))?;
+        // Optional clean sibling log: no timestamps, ANSI always stripped.
+        // Useful for grepping or human reading without the per-line stamps
+        // cluttering the output.
+        let clean_path = if config.clean_log {
+            let cp = clean_path_for(&log_path);
+            append_block(&cp, &header)
+                .map_err(|e| format!("write header to {}: {e}", cp.display()))?;
+            Some(cp)
+        } else {
+            None
+        };
         self.panes.insert(
             pane,
             TrackedPane {
                 log_path: log_path.clone(),
+                clean_path,
                 last_content: initial_content,
                 started_at: Local::now(),
             },
@@ -102,6 +118,9 @@ impl Tracker {
             Local::now().format("%Y-%m-%dT%H:%M:%S%:z")
         );
         let _ = append_block(&removed.log_path, &footer);
+        if let Some(cp) = &removed.clean_path {
+            let _ = append_block(cp, &footer);
+        }
         Some(removed.log_path)
     }
 
@@ -132,9 +151,21 @@ impl Tracker {
             tracked.last_content = full_content.to_vec();
             return Ok(());
         }
-        let block = format_lines(new_lines.iter().copied(), config);
-        append_block(&tracked.log_path, &block)
+        let main_block = format_lines(
+            new_lines.iter().copied(),
+            config.timestamp_lines,
+            config.strip_ansi,
+        );
+        append_block(&tracked.log_path, &main_block)
             .map_err(|e| format!("append to {}: {e}", tracked.log_path.display()))?;
+        if let Some(cp) = &tracked.clean_path {
+            // Clean log always: no timestamps, ANSI stripped, regardless of
+            // primary-log config. This is the "human-readable companion"
+            // file the user keeps open while engaging.
+            let clean_block = format_lines(new_lines.iter().copied(), false, true);
+            append_block(cp, &clean_block)
+                .map_err(|e| format!("append to {}: {e}", cp.display()))?;
+        }
         tracked.last_content = full_content.to_vec();
         Ok(())
     }
@@ -163,9 +194,11 @@ impl Tracker {
             meta.pane_id_str,
         );
         // For one-shots, default to NO per-line timestamps (matching tmux-logging).
-        let mut snapshot_cfg = config.clone();
-        snapshot_cfg.timestamp_lines = false;
-        let body = format_lines(lines.iter().map(String::as_str), &snapshot_cfg);
+        let body = format_lines(
+            lines.iter().map(String::as_str),
+            false,
+            config.strip_ansi,
+        );
         append_block(&path, &header)
             .map_err(|e| format!("write header to {}: {e}", path.display()))?;
         append_block(&path, &body)
@@ -216,6 +249,24 @@ fn render_path(config: &PluginConfig, meta: &PaneMeta) -> PathBuf {
     config.output_dir.join(rendered)
 }
 
+/// Build the path of the clean sibling log next to `main`. Inserts `.clean`
+/// before the file extension, mirroring how snapshot files insert
+/// `.visible`/`.full`.
+fn clean_path_for(main: &Path) -> PathBuf {
+    let mut p = main.to_path_buf();
+    let new_name = match (p.file_stem(), p.extension()) {
+        (Some(stem), Some(ext)) => format!(
+            "{}.clean.{}",
+            stem.to_string_lossy(),
+            ext.to_string_lossy()
+        ),
+        (Some(stem), None) => format!("{}.clean", stem.to_string_lossy()),
+        _ => "clean.log".to_owned(),
+    };
+    p.set_file_name(new_name);
+    p
+}
+
 fn render_path_with_suffix(config: &PluginConfig, meta: &PaneMeta, suffix: &str) -> PathBuf {
     let mut p = render_path(config, meta);
     // Insert suffix before the final extension if any: `foo.log` → `foo.full.log`.
@@ -261,13 +312,14 @@ fn diff_new_lines<'a>(prev: &[String], curr: &'a [String]) -> Vec<&'a str> {
 /// sub-second timestamps (Burp, responder, etc.).
 const LINE_TIMESTAMP_FMT: &str = "%Y-%m-%dT%H:%M:%S%.3f%:z";
 
-/// Format an iterator of lines into a single string blob according to config:
-/// optional ANSI strip, optional timestamp prefix, trailing-whitespace trim.
+/// Format an iterator of lines into a single string blob with explicit
+/// formatting options: optional ANSI strip, optional timestamp prefix,
+/// trailing-whitespace trim.
 ///
 /// When timestamp prefixes are enabled, each non-blank line gets a fresh
 /// `Local::now()` so the timestamps reflect the actual write moment per line
 /// rather than a single shared "batch" stamp.
-fn format_lines<'a, I>(lines: I, config: &PluginConfig) -> String
+fn format_lines<'a, I>(lines: I, with_timestamps: bool, strip_ansi_codes: bool) -> String
 where
     I: Iterator<Item = &'a str>,
 {
@@ -280,12 +332,12 @@ where
             out.push('\n');
             continue;
         }
-        let cleaned: String = if config.strip_ansi {
+        let cleaned: String = if strip_ansi_codes {
             ansi::strip(line)
         } else {
             line.to_owned()
         };
-        if config.timestamp_lines {
+        if with_timestamps {
             // Per-line `now` so each line's stamp reflects when it was
             // written, not a single batch stamp.
             out.push_str(&Local::now().format(LINE_TIMESTAMP_FMT).to_string());
@@ -362,15 +414,9 @@ mod tests {
 
     #[test]
     fn format_strips_ansi_and_adds_timestamp() {
-        let cfg = PluginConfig {
-            timestamp_lines: true,
-            strip_ansi: true,
-            ..PluginConfig::default()
-        };
-        let out = format_lines(["\x1b[31mhello\x1b[0m"].into_iter(), &cfg);
+        let out = format_lines(["\x1b[31mhello\x1b[0m"].into_iter(), true, true);
         assert!(out.contains("hello"));
         assert!(!out.contains("\x1b"));
-        // ISO timestamp prefix sanity check: starts with year.
         assert!(
             out.starts_with(&format!("{}", Local::now().format("%Y"))),
             "timestamp prefix missing: {out}"
@@ -379,25 +425,15 @@ mod tests {
 
     #[test]
     fn format_timestamp_has_millisecond_precision() {
-        let cfg = PluginConfig {
-            timestamp_lines: true,
-            strip_ansi: false,
-            ..PluginConfig::default()
-        };
-        let out = format_lines(["hello"].into_iter(), &cfg);
-        // Expect "YYYY-MM-DDTHH:MM:SS.NNN+HHMM hello\n", so the first 23
-        // chars after the date are the time including `.NNN`. Look for the
-        // millisecond decimal point at the right column.
-        // Format: 2026-05-04T14:30:45.123+02:00
-        //         ^^^^^^^^^^^^^^^^^^^^ ^
-        //         0                  19 20 (the dot)
+        let out = format_lines(["hello"].into_iter(), true, false);
+        // Expect "YYYY-MM-DDTHH:MM:SS.NNN+HHMM hello\n", so the dot at
+        // position 19 separates seconds from milliseconds.
         let dot_idx = 19;
         assert_eq!(
             &out[dot_idx..dot_idx + 1],
             ".",
             "no millisecond separator in {out}"
         );
-        // Three digits after the dot.
         assert!(
             out[dot_idx + 1..dot_idx + 4].chars().all(|c| c.is_ascii_digit()),
             "milliseconds not three digits in {out}"
@@ -406,24 +442,40 @@ mod tests {
 
     #[test]
     fn format_preserves_ansi_when_disabled() {
-        let cfg = PluginConfig {
-            timestamp_lines: false,
-            strip_ansi: false,
-            ..PluginConfig::default()
-        };
-        let out = format_lines(["\x1b[31mhello\x1b[0m"].into_iter(), &cfg);
+        let out = format_lines(["\x1b[31mhello\x1b[0m"].into_iter(), false, false);
         assert_eq!(out, "\x1b[31mhello\x1b[0m\n");
     }
 
     #[test]
     fn format_trims_trailing_whitespace() {
-        let cfg = PluginConfig {
-            timestamp_lines: false,
-            strip_ansi: false,
-            ..PluginConfig::default()
-        };
-        let out = format_lines(["hello       ", "world"].into_iter(), &cfg);
+        let out = format_lines(["hello       ", "world"].into_iter(), false, false);
         assert_eq!(out, "hello\nworld\n");
+    }
+
+    #[test]
+    fn clean_path_inserts_before_extension() {
+        assert_eq!(
+            clean_path_for(&PathBuf::from("/tmp/logs/a/foo.log")),
+            PathBuf::from("/tmp/logs/a/foo.clean.log")
+        );
+    }
+
+    #[test]
+    fn clean_path_handles_no_extension() {
+        assert_eq!(
+            clean_path_for(&PathBuf::from("/tmp/logs/foo")),
+            PathBuf::from("/tmp/logs/foo.clean")
+        );
+    }
+
+    #[test]
+    fn clean_format_overrides_user_config() {
+        // Even when the primary log keeps ANSI and stamps lines, the clean
+        // log always strips ANSI and never timestamps.
+        let primary = format_lines(["\x1b[31mhi\x1b[0m"].into_iter(), true, false);
+        let clean = format_lines(["\x1b[31mhi\x1b[0m"].into_iter(), false, true);
+        assert!(primary.contains("\x1b[31m"));
+        assert_eq!(clean, "hi\n");
     }
 
     #[test]

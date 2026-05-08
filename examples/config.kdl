@@ -33,6 +33,13 @@ plugins {
         // permission, which is broader than the clear feature alone needs;
         // off by default for that reason.
         enable_clear_history false
+
+        // If true, also write a sibling `<name>.clean.log` next to each
+        // continuous log: no per-line timestamps, ANSI escapes always
+        // stripped. Useful as a human-readable companion file you can
+        // tail or grep without the timestamps cluttering output. The
+        // primary timestamped log is unaffected by this setting.
+        clean_log true
     }
 }
 
