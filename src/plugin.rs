@@ -39,10 +39,20 @@ pub struct State {
 impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         self.config = PluginConfig::from_map(&configuration);
-        // Always need ReadPaneContents. Only ask for ChangeApplicationState
-        // if the user opted into clear_history; that permission grants
-        // broad pane/tab/UI control so we don't request it unnecessarily.
-        let mut perms = vec![PermissionType::ReadPaneContents];
+        // - ReadPaneContents: required for PaneRenderReport events and
+        //   get_pane_scrollback() (the core logging capability).
+        // - ReadApplicationState: required for SessionUpdate / TabUpdate /
+        //   PaneUpdate events, which the plugin uses to resolve the
+        //   {session}, {tab}, and {pane_title} placeholders in filename
+        //   templates. Without it the plugin still logs, but to filenames
+        //   like `unknown-session-tab-pane.log` instead of meaningful ones.
+        // - ChangeApplicationState: only requested when the user opts into
+        //   `clear_history`, since that permission is broader than the
+        //   feature alone needs (it also grants pane/tab/UI control).
+        let mut perms = vec![
+            PermissionType::ReadPaneContents,
+            PermissionType::ReadApplicationState,
+        ];
         if self.config.enable_clear_history {
             perms.push(PermissionType::ChangeApplicationState);
         }
@@ -123,37 +133,80 @@ impl ZellijPlugin for State {
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        if !self.permitted && !self.warned_about_permission {
-            self.push_status(
-                "ReadPaneContents not yet granted; ignoring pipe until permission resolves"
-                    .to_owned(),
-            );
-            self.warned_about_permission = true;
-            return true;
-        }
-        if !self.permitted {
-            return false;
-        }
-        match pipe_message.name.as_str() {
-            "toggle" => match self.toggle_focused() {
-                Ok(msg) => self.push_status(msg),
-                Err(msg) => self.push_status(format!("toggle failed: {msg}")),
-            },
-            "snapshot" => match self.snapshot_focused(SnapshotKind::Visible) {
-                Ok(path) => self.push_status(format!("snapshot written: {}", path.display())),
-                Err(msg) => self.push_status(format!("snapshot failed: {msg}")),
-            },
-            "dump_full" => match self.snapshot_focused(SnapshotKind::Full) {
-                Ok(path) => self.push_status(format!("full dump written: {}", path.display())),
-                Err(msg) => self.push_status(format!("dump_full failed: {msg}")),
-            },
-            "clear_history" => match self.clear_focused_history() {
-                Ok(msg) => self.push_status(msg),
-                Err(msg) => self.push_status(format!("clear_history failed: {msg}")),
-            },
-            other => {
-                self.push_status(format!("unknown pipe message: {other}"));
-            },
+        // Handle the message and capture a one-line user-visible reply for
+        // CLI callers. Status is also pushed into the plugin pane buffer.
+        let reply: String = if !self.permitted {
+            if !self.warned_about_permission {
+                self.warned_about_permission = true;
+                self.push_status(
+                    "ReadPaneContents not yet granted; ignoring pipe until permission resolves"
+                        .to_owned(),
+                );
+            }
+            "permission not granted; ignoring".to_owned()
+        } else {
+            match pipe_message.name.as_str() {
+                "toggle" => match self.toggle_focused() {
+                    Ok(msg) => {
+                        self.push_status(msg.clone());
+                        msg
+                    },
+                    Err(msg) => {
+                        let line = format!("toggle failed: {msg}");
+                        self.push_status(line.clone());
+                        line
+                    },
+                },
+                "snapshot" => match self.snapshot_focused(SnapshotKind::Visible) {
+                    Ok(path) => {
+                        let line = format!("snapshot written: {}", path.display());
+                        self.push_status(line.clone());
+                        line
+                    },
+                    Err(msg) => {
+                        let line = format!("snapshot failed: {msg}");
+                        self.push_status(line.clone());
+                        line
+                    },
+                },
+                "dump_full" => match self.snapshot_focused(SnapshotKind::Full) {
+                    Ok(path) => {
+                        let line = format!("full dump written: {}", path.display());
+                        self.push_status(line.clone());
+                        line
+                    },
+                    Err(msg) => {
+                        let line = format!("dump_full failed: {msg}");
+                        self.push_status(line.clone());
+                        line
+                    },
+                },
+                "clear_history" => match self.clear_focused_history() {
+                    Ok(msg) => {
+                        self.push_status(msg.clone());
+                        msg
+                    },
+                    Err(msg) => {
+                        let line = format!("clear_history failed: {msg}");
+                        self.push_status(line.clone());
+                        line
+                    },
+                },
+                other => {
+                    let line = format!("unknown pipe message: {other}");
+                    self.push_status(line.clone());
+                    line
+                },
+            }
+        };
+
+        // If the pipe came from `zellij pipe` on the CLI, the CLI is blocked
+        // waiting for our response. Send the reply back as the pipe's
+        // output and explicitly unblock so the CLI sees EOF and exits.
+        // Without this, `zellij pipe ... --name toggle` hangs indefinitely.
+        if let PipeSource::Cli(pipe_id) = &pipe_message.source {
+            cli_pipe_output(pipe_id, &format!("{reply}\n"));
+            unblock_cli_pipe_input(pipe_id);
         }
         true
     }
