@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial release. Modeled on `tmux-plugins/tmux-logging`.
-- Continuous logging via `Event::PaneRenderReport` with viewport-diff append.
+- Continuous logging keyed on `Event::PaneRenderReport` events, but the
+  capture itself uses `get_pane_scrollback(pane_id, get_full_scrollback=true)`
+  to fetch the complete `lines_above_viewport ++ viewport` history each
+  cycle. This catches content that scrolled past the viewport too fast for
+  a viewport-only snapshot, which is the behaviour engagement-grade
+  logging actually needs. Toggle-on captures the current scrollback as a
+  baseline so the log only contains content produced after that moment,
+  matching `tmux-logging`'s `pipe-pane` semantics.
 - One-shot visible-viewport snapshot (`snapshot` pipe message).
 - One-shot full-scrollback dump (`dump_full` pipe message).
 - `clear_history` pipe message (opt-in via `enable_clear_history`) that

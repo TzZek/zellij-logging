@@ -112,15 +112,29 @@ impl ZellijPlugin for State {
                 }
                 let cfg = self.config.clone();
                 let mut errors: Vec<String> = Vec::new();
-                for (pane, contents) in reports.iter() {
+                // The render report tells us which panes re-rendered, but the
+                // viewport it carries is only the visible window. To capture
+                // every line that ever passed through the pane (including
+                // content that scrolled past too fast for the viewport to
+                // catch), we synchronously fetch the full scrollback for each
+                // tracked pane and feed that to the tracker for diffing.
+                for pane in reports.keys() {
                     let key = format!("{pane}");
                     if !self.tracker.is_tracking(&key) {
                         continue;
                     }
-                    if let Err(e) =
-                        self.tracker.on_render_report(&key, &contents.viewport, &cfg)
-                    {
-                        errors.push(format!("write error: {e}"));
+                    match get_pane_scrollback(*pane, true) {
+                        Ok(contents) => {
+                            let full = build_full_content(&contents);
+                            if let Err(e) =
+                                self.tracker.on_content_update(&key, &full, &cfg)
+                            {
+                                errors.push(format!("write error: {e}"));
+                            }
+                        },
+                        Err(e) => {
+                            errors.push(format!("scrollback fetch failed for {pane}: {e}"));
+                        },
                     }
                 }
                 let mut should_render = false;
@@ -309,8 +323,18 @@ impl State {
                 .ok_or_else(|| "pane was not tracked".to_owned())?;
             return Ok(format!("stopped logging {pane_id} ({})", path.display()));
         }
+        // Capture the current full scrollback as the baseline so the log only
+        // contains content produced from now on, matching tmux-logging's
+        // pipe-pane behaviour. If the fetch fails (no permission etc.) we
+        // surface the error without inserting a half-tracked entry.
+        let baseline = match get_pane_scrollback(pane_id, true) {
+            Ok(contents) => build_full_content(&contents),
+            Err(e) => return Err(format!("get_pane_scrollback: {e}")),
+        };
         let meta = owned.as_ref();
-        let path = self.tracker.start(key, &self.config, &meta)?;
+        let path = self
+            .tracker
+            .start(key, &self.config, &meta, baseline)?;
         Ok(format!("started logging {pane_id} -> {}", path.display()))
     }
 
@@ -323,12 +347,12 @@ impl State {
         }
         let (pane_id, _) = self.focused_meta()?;
         clear_screen_for_pane_id(pane_id);
-        // The next render report for this pane will look unrelated to the
-        // last viewport we have on file, so the diff would dump a wall of
-        // blank lines. Forget the last viewport for the cleared pane so the
-        // next report is treated as a fresh capture.
+        // The next update for this pane will look unrelated to the last full
+        // content we have on file, so the diff would dump a wall of blank
+        // lines. Forget the last content for the cleared pane so the next
+        // update is treated as a fresh baseline.
         let key = format!("{pane_id}");
-        self.tracker.reset_viewport(&key);
+        self.tracker.reset_content(&key);
         Ok(format!("cleared scrollback for {pane_id}"))
     }
 
@@ -357,6 +381,21 @@ fn matches_pane_id(p: &PaneInfo, want: &PaneId) -> bool {
         PaneId::Terminal(id) => !p.is_plugin && p.id == *id,
         PaneId::Plugin(id) => p.is_plugin && p.id == *id,
     }
+}
+
+/// Build the full sequential record of a pane's content from the scrollback
+/// response: lines that have already scrolled past the viewport followed by
+/// what's currently visible. `lines_below_viewport` (future-scroll-back
+/// content for users scrolled up) is intentionally ignored, both because it
+/// is rare in normal use and because it would distort the linear "what
+/// happened next" record we want for an engagement log.
+fn build_full_content(contents: &PaneContents) -> Vec<String> {
+    let mut full = Vec::with_capacity(
+        contents.lines_above_viewport.len() + contents.viewport.len(),
+    );
+    full.extend(contents.lines_above_viewport.iter().cloned());
+    full.extend(contents.viewport.iter().cloned());
+    full
 }
 
 /// Owned counterpart of `PaneMeta`. The tracker takes a borrowed view; we

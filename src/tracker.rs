@@ -23,9 +23,12 @@ use crate::template::TemplateContext;
 /// Bookkeeping for a single pane that is being continuously logged.
 pub struct TrackedPane {
     pub log_path: PathBuf,
-    /// The last viewport we saw, so we can compute a diff and only append new
-    /// lines instead of re-writing the whole viewport on every render report.
-    pub last_viewport: Vec<String>,
+    /// The last full content (lines_above_viewport ++ viewport) we saw, so
+    /// we can compute a diff and only append the new tail on each update.
+    /// Compared to viewport-only, this catches every line that ever passed
+    /// through the pane, including content that scrolled past too fast for
+    /// any single viewport snapshot to land on.
+    pub last_content: Vec<String>,
     pub started_at: chrono::DateTime<chrono::Local>,
 }
 
@@ -54,18 +57,24 @@ impl Tracker {
     }
 
     /// Start tracking the pane identified by `pane`. Returns the resolved log path.
+    ///
+    /// `initial_content` is the current full scrollback+viewport at the moment
+    /// the user toggled logging on. We store it as the baseline so future
+    /// updates only append the delta. This matches `tmux-logging`'s
+    /// `pipe-pane` behaviour: the log starts from "now" and does not retroactively
+    /// dump pre-existing scrollback.
     pub fn start(
         &mut self,
         pane: String,
         config: &PluginConfig,
         meta: &PaneMeta,
+        initial_content: Vec<String>,
     ) -> Result<PathBuf, String> {
         let log_path = render_path(config, meta);
         if let Some(parent) = log_path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("create_dir_all {}: {e}", parent.display()))?;
         }
-        // Touch the file with a header so the user can confirm logging started.
         let header = format!(
             "# zellij-logging started {} for pane {}\n",
             Local::now().format("%Y-%m-%dT%H:%M:%S%:z"),
@@ -77,7 +86,7 @@ impl Tracker {
             pane,
             TrackedPane {
                 log_path: log_path.clone(),
-                last_viewport: Vec::new(),
+                last_content: initial_content,
                 started_at: Local::now(),
             },
         );
@@ -96,37 +105,37 @@ impl Tracker {
         Some(removed.log_path)
     }
 
-    /// Forget the last-seen viewport for `pane`. Call this after issuing a
-    /// pane-clear so the next render report is diffed against an empty
-    /// baseline instead of producing a flood of fake "scrolled-out" lines.
-    /// No-op if the pane is not tracked.
-    pub fn reset_viewport(&mut self, pane: &str) {
+    /// Forget the last-seen content for `pane`. Call this after issuing a
+    /// pane-clear so the next update is diffed against an empty baseline
+    /// instead of producing a flood of fake "scrolled-out" lines. No-op if
+    /// the pane is not tracked.
+    pub fn reset_content(&mut self, pane: &str) {
         if let Some(tp) = self.panes.get_mut(pane) {
-            tp.last_viewport.clear();
+            tp.last_content.clear();
         }
     }
 
-    /// Apply a render-report viewport to a tracked pane: diff and append.
-    /// No-op if the pane is not tracked.
-    pub fn on_render_report(
+    /// Apply the latest full content (lines_above_viewport ++ viewport) to a
+    /// tracked pane: diff against the last seen full content and append the
+    /// new tail. No-op if the pane is not tracked.
+    pub fn on_content_update(
         &mut self,
         pane: &str,
-        viewport: &[String],
+        full_content: &[String],
         config: &PluginConfig,
     ) -> Result<(), String> {
         let Some(tracked) = self.panes.get_mut(pane) else {
             return Ok(());
         };
-        let new_lines = diff_new_lines(&tracked.last_viewport, viewport);
+        let new_lines = diff_new_lines(&tracked.last_content, full_content);
         if new_lines.is_empty() {
-            // Even if no new lines, capture the latest viewport for next diff.
-            tracked.last_viewport = viewport.to_vec();
+            tracked.last_content = full_content.to_vec();
             return Ok(());
         }
         let block = format_lines(new_lines.iter().copied(), config);
         append_block(&tracked.log_path, &block)
             .map_err(|e| format!("append to {}: {e}", tracked.log_path.display()))?;
-        tracked.last_viewport = viewport.to_vec();
+        tracked.last_content = full_content.to_vec();
         Ok(())
     }
 

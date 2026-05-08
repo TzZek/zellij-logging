@@ -94,10 +94,32 @@ After editing the config, restart Zellij or run `zellij action launch-or-focus-p
 | `Alt+Shift+P`    | `dump_full`      | Write the entire scrollback (above + viewport + below) to a one-shot file.  |
 | `Alt+C`          | `clear_history`  | Clear the focused pane's scrollback. Requires `enable_clear_history true`.  |
 
-Continuous logging diffs each `PaneRenderReport` against the previous viewport
-and appends only the new lines, so the output looks roughly like a real-time
-transcript. TUIs that redraw the screen (vim, htop, etc.) will be noisy in the
-log; toggle logging off for those panes.
+Continuous logging works like this on each `PaneRenderReport`:
+
+1. Synchronously fetch the **full scrollback** for every tracked pane via
+   `get_pane_scrollback(pane_id, get_full_scrollback=true)`. This returns
+   `lines_above_viewport ++ viewport`: every line that has ever been on
+   the pane plus what's currently visible.
+2. Diff against the last full content we stored for that pane (the "baseline"
+   captured at the moment the user toggled logging on).
+3. Append the new tail to the log file with optional per-line timestamps.
+
+This is intentionally similar to how `tmux-logging`'s `pipe-pane` works:
+the log starts from the moment you toggle on and contains every line the
+pane subsequently produces, including content that scrolled past the
+viewport too fast to ever be captured by a viewport-only snapshot.
+
+### Architectural note
+
+`tmux-logging` taps the pane's pseudo-terminal directly via `pipe-pane`, so
+it captures every byte including cursor moves and partial-line overwrites.
+Zellij plugins do not have access to that level of the pty stack, so this
+plugin captures the **rendered** scrollback grid instead. For typical
+sequential-output tooling (nmap, gobuster, hashcat, shell commands) the
+two approaches produce equivalent records. For interactive TUI applications
+(vim, msfconsole) tmux-logging captures cursor-level keystrokes whereas this
+plugin only sees the final-rendered state of each line; for those
+workloads, `script(1)` started inside the pane is the right tool.
 
 ## Configuration
 
