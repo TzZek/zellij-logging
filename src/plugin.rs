@@ -31,6 +31,11 @@ pub struct State {
     permitted: bool,
     /// Status messages we render in the plugin pane (most recent first).
     status: Vec<String>,
+    /// Whether the plugin's own pane is currently visible. We only return
+    /// `true` from `update`/`pipe` when this is true, so events don't cause
+    /// Zellij to pop the plugin pane forward when the user just wanted to
+    /// toggle logging on a different pane.
+    is_visible: bool,
 }
 
 impl ZellijPlugin for State {
@@ -67,6 +72,7 @@ impl ZellijPlugin for State {
             EventType::TabUpdate,
             EventType::PaneUpdate,
             EventType::PermissionRequestResult,
+            EventType::Visible,
         ]);
         self.push_status(format!(
             "loaded; output_dir={}, template={}",
@@ -80,6 +86,10 @@ impl ZellijPlugin for State {
 
     fn update(&mut self, event: Event) -> bool {
         match event {
+            Event::Visible(v) => {
+                self.is_visible = v;
+                false
+            },
             Event::PermissionRequestResult(status) => {
                 self.permitted = matches!(status, PermissionStatus::Granted);
                 if self.permitted {
@@ -92,7 +102,7 @@ impl ZellijPlugin for State {
                 } else {
                     self.push_status("permission denied: ReadPaneContents".to_owned());
                 }
-                true
+                self.is_visible
             },
             Event::SessionUpdate(sessions, _) => {
                 if let Some(s) = sessions.iter().find(|s| s.is_current_session) {
@@ -139,12 +149,14 @@ impl ZellijPlugin for State {
                         },
                     }
                 }
-                let mut should_render = false;
-                for e in errors {
-                    self.push_status(e);
-                    should_render = true;
+                if !errors.is_empty() {
+                    for e in errors {
+                        self.push_status(e);
+                    }
                 }
-                should_render
+                // Only re-render if the plugin pane is actually visible; we
+                // don't want background errors to pop the plugin pane forward.
+                self.is_visible
             },
             _ => false,
         }
@@ -221,7 +233,10 @@ impl ZellijPlugin for State {
             cli_pipe_output(pipe_id, &format!("{reply}\n"));
             unblock_cli_pipe_input(pipe_id);
         }
-        true
+        // Only re-render the plugin pane if it's actually visible. Otherwise
+        // returning true here would pop the plugin pane forward every time a
+        // user pressed the toggle keybind.
+        self.is_visible
     }
 
     fn render(&mut self, rows: usize, _cols: usize) {
@@ -317,14 +332,25 @@ impl State {
 
     fn toggle_focused(&mut self) -> Result<String, String> {
         let (pane_id, owned) = self.focused_meta()?;
+        // Refuse to track plugin panes (the zellij-logging status pane
+        // itself, the about screen, etc.). Their content isn't useful and
+        // accidentally toggling on the wrong pane wastes disk and confuses
+        // the [REC] indicator.
+        if matches!(pane_id, PaneId::Plugin(_)) {
+            return Err(format!(
+                "refusing to track plugin pane {pane_id}; switch to a terminal pane first"
+            ));
+        }
         let key = format!("{pane_id}");
         if self.tracker.is_tracking(&key) {
-            let path = self
+            let (path, original_title) = self
                 .tracker
                 .stop(&key)
                 .ok_or_else(|| "pane was not tracked".to_owned())?;
             if self.config.visual_indicator {
-                highlight_and_unhighlight_panes(vec![], vec![pane_id]);
+                if let Some(t) = original_title {
+                    rename_pane_with_id(pane_id, t);
+                }
             }
             return Ok(format!("stopped logging {pane_id} ({})", path.display()));
         }
@@ -336,13 +362,20 @@ impl State {
             Ok(contents) => build_full_content(&contents),
             Err(e) => return Err(format!("get_pane_scrollback: {e}")),
         };
+        // Save the current pane title so we can restore it on stop, and
+        // prefix it with [REC] so the user has a visible signal in the pane
+        // border that this pane is being logged.
+        let saved_title = if self.config.visual_indicator {
+            let t = owned.pane_title.clone();
+            rename_pane_with_id(pane_id, format!("[REC] {t}"));
+            Some(t)
+        } else {
+            None
+        };
         let meta = owned.as_ref();
         let path = self
             .tracker
-            .start(key, &self.config, &meta, baseline)?;
-        if self.config.visual_indicator {
-            highlight_and_unhighlight_panes(vec![pane_id], vec![]);
-        }
+            .start(key, &self.config, &meta, baseline, saved_title)?;
         Ok(format!("started logging {pane_id} -> {}", path.display()))
     }
 

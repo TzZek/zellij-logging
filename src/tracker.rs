@@ -34,6 +34,10 @@ pub struct TrackedPane {
     /// any single viewport snapshot to land on.
     pub last_content: Vec<String>,
     pub started_at: chrono::DateTime<chrono::Local>,
+    /// The pane's title before we prefixed it with [REC]. Saved so we can
+    /// restore it when logging stops. None if the visual indicator was
+    /// disabled or we couldn't read the title.
+    pub original_title: Option<String>,
 }
 
 /// A small façade around the per-pane map and the resolved config.
@@ -73,6 +77,7 @@ impl Tracker {
         config: &PluginConfig,
         meta: &PaneMeta,
         initial_content: Vec<String>,
+        original_title: Option<String>,
     ) -> Result<PathBuf, String> {
         let log_path = render_path(config, meta);
         if let Some(parent) = log_path.parent() {
@@ -104,6 +109,7 @@ impl Tracker {
                 clean_path,
                 last_content: initial_content,
                 started_at: Local::now(),
+                original_title,
             },
         );
         Ok(log_path)
@@ -111,7 +117,10 @@ impl Tracker {
 
     /// Stop tracking `pane`. Returns the path that was being written, if any,
     /// so the caller can report it.
-    pub fn stop(&mut self, pane: &str) -> Option<PathBuf> {
+    /// Returns the log path that was being written and the pane's pre-tracking
+    /// title (if one was saved on `start`), so the caller can revert any
+    /// visual indicator they applied.
+    pub fn stop(&mut self, pane: &str) -> Option<(PathBuf, Option<String>)> {
         let removed = self.panes.remove(pane)?;
         let footer = format!(
             "# zellij-logging stopped {}\n",
@@ -121,7 +130,7 @@ impl Tracker {
         if let Some(cp) = &removed.clean_path {
             let _ = append_block(cp, &footer);
         }
-        Some(removed.log_path)
+        Some((removed.log_path, removed.original_title))
     }
 
     /// Forget the last-seen content for `pane`. Call this after issuing a
