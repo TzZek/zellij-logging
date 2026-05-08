@@ -38,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on, and unhighlights them when toggled off. Auto-requests
   `ChangeApplicationState` permission only when this option (or
   `enable_clear_history`) is enabled.
+- `SECURITY.md` documenting the threat model, disclosure process, and
+  the list of permissions the plugin does and does not request.
+
+### Security
+
+- Path traversal via pane titles fixed. A program running in a tracked
+  pane can rewrite its own title via OSC escape sequences; previously,
+  if the user's `filename_template` referenced `{pane_title}`, a title
+  like `../../../etc/passwd` could direct writes outside `output_dir`.
+  The template `sanitise()` function now strips `/` and `\` from
+  substituted values and collapses any surviving `..` runs.
 
 ### Requires
 - Zellij 0.44.2 specifically. The plugin ABI is auto-generated from

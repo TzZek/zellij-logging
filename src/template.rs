@@ -81,22 +81,39 @@ fn find_close(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-/// Replace path-hostile characters with underscores. We keep `/` because the
-/// template can legitimately produce subdirectories (e.g. `{date}/...`), and
-/// we keep `-`, `_`, `.`. Everything else outside `[A-Za-z0-9._/-]` is
-/// replaced. Empty results are replaced with `_` so the path component is
-/// never empty.
+/// Replace path-hostile characters with underscores. Applied to **substituted
+/// values only**, never to the literal text of the template, so a template
+/// like `{date}/{session}.log` still gets a real subdirectory from the `/`
+/// in the literal portion.
+///
+/// Substituted values are attacker-controllable in the case of pane titles
+/// (any program in a tracked pane can rewrite its own title via OSC escape
+/// sequences), so this function strips path separators and collapses runs
+/// of `..` to prevent path traversal out of `output_dir`. The WASI runtime
+/// also sandboxes filesystem access to the plugin's preopened mounts as a
+/// defense in depth, but we don't rely on that alone.
 fn sanitise(value: &str) -> String {
     let mut s: String = value
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/') {
+            // Allow alphanumerics and a small set of safe punctuation. In
+            // particular, `/` and `\` are NOT allowed in substituted values
+            // (they would let a malicious pane title introduce extra path
+            // components). `.` is allowed for filenames like `vim main.rs`,
+            // but `..` runs are collapsed below.
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
                 c
             } else {
                 '_'
             }
         })
         .collect();
+    // Collapse any `..` that survived (e.g. a value like `..hidden`) so that
+    // even if the surrounding template puts this between literal `/`s, the
+    // resulting path can't escape upward.
+    while s.contains("..") {
+        s = s.replace("..", "__");
+    }
     if s.is_empty() {
         s.push('_');
     }
@@ -176,8 +193,41 @@ mod tests {
         let mut c = ctx(fixed_now());
         c.session = "résumé/café";
         let out = c.render("{session}.log");
-        // / is preserved (it's a path separator); accented letters become _.
-        assert_eq!(out, "r_sum_/caf_.log");
+        // `/` in a substituted value is replaced with `_` (path traversal
+        // prevention); accented letters become `_` too. The literal `/`
+        // separator in a template (e.g. `{date}/{session}.log`) is not
+        // sent through sanitise and is preserved.
+        assert_eq!(out, "r_sum__caf_.log");
+    }
+
+    #[test]
+    fn sanitises_path_traversal_in_pane_title() {
+        // A malicious program in a tracked pane can rewrite its title via
+        // OSC escape sequences. If the user's filename_template includes
+        // `{pane_title}`, the renderer must not let the title escape the
+        // output directory.
+        let mut c = ctx(fixed_now());
+        c.pane_title = "../../../etc/passwd";
+        let out = c.render("{pane_title}.log");
+        assert!(!out.contains('/'), "path separator survived in {out}");
+        assert!(!out.contains(".."), "double-dot survived in {out}");
+    }
+
+    #[test]
+    fn sanitises_backslash_path_traversal() {
+        let mut c = ctx(fixed_now());
+        c.pane_title = r"..\..\..\Windows\System32";
+        let out = c.render("{pane_title}.log");
+        assert!(!out.contains('\\'), "backslash survived in {out}");
+        assert!(!out.contains(".."), "double-dot survived in {out}");
+    }
+
+    #[test]
+    fn collapses_dot_runs_in_values() {
+        let mut c = ctx(fixed_now());
+        c.session = "foo...bar";
+        let out = c.render("{session}.log");
+        assert!(!out.contains(".."), "double-dot survived in {out}");
     }
 
     #[test]

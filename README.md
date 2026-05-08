@@ -301,6 +301,20 @@ The pure-data modules (`config`, `template`, `ansi`, `tracker`) are covered
 by unit tests on the host. The plugin glue (`src/plugin.rs`) is wasm-only and
 gets exercised by running it inside Zellij (see `scripts/test-plugin.sh`).
 
+## Security
+
+Pane content captured by this plugin can contain secrets (typed passwords,
+echoed tokens, SSH keys printed by debug output). Treat the log directory
+like any audit log: restrict permissions, encrypt at rest where appropriate,
+destroy after engagements end.
+
+Pane titles are attacker-controllable (a program in a tracked pane can
+rewrite its own title via OSC escape sequences). The template renderer
+strips path separators and collapses `..` from all substituted values to
+prevent path traversal out of `output_dir`. See [SECURITY.md](SECURITY.md)
+for the full threat model, vulnerability disclosure policy, and the list of
+permissions the plugin does and does not request.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
