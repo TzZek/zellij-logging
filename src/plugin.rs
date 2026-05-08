@@ -31,9 +31,6 @@ pub struct State {
     permitted: bool,
     /// Status messages we render in the plugin pane (most recent first).
     status: Vec<String>,
-    /// Whether the user has been warned about a missing permission. Avoid
-    /// spamming the same warning on every pipe message.
-    warned_about_permission: bool,
 }
 
 impl ZellijPlugin for State {
@@ -138,18 +135,13 @@ impl ZellijPlugin for State {
     }
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        // Handle the message and capture a one-line user-visible reply for
-        // CLI callers. Status is also pushed into the plugin pane buffer.
-        let reply: String = if !self.permitted {
-            if !self.warned_about_permission {
-                self.warned_about_permission = true;
-                self.push_status(
-                    "ReadPaneContents not yet granted; ignoring pipe until permission resolves"
-                        .to_owned(),
-                );
-            }
-            "permission not granted; ignoring".to_owned()
-        } else {
+        // Don't gate on `self.permitted` here. PermissionRequestResult is
+        // delivered asynchronously, so a pipe can arrive before the flag is
+        // set (especially on fresh sessions where the keybind/CLI fires
+        // immediately after plugin load). Zellij enforces permissions at
+        // the host call sites, and the inner handlers convert any denials
+        // into Err(...) which we surface to the user.
+        let reply: String = {
             match pipe_message.name.as_str() {
                 "toggle" => match self.toggle_focused() {
                     Ok(msg) => {
