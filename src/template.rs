@@ -139,15 +139,22 @@ mod tests {
     fn ts_contains_timezone_offset() {
         let c = ctx(fixed_now());
         let out = c.render("{ts}.log");
-        // ISO-8601 with offset like 2026-05-04T14-30-45+0200.
         assert!(out.starts_with("2026-05-04T14-30-45"), "got {out}");
         assert!(out.ends_with(".log"));
-        // Must end with timezone offset (5 chars: +HHMM or -HHMM).
+        // Must end with a timezone offset. The chrono format produces
+        // `+HHMM` or `-HHMM`; our path sanitiser replaces `+` with `_`
+        // (since `+` isn't in the path-safe allowlist) but leaves `-`
+        // alone (it is). So accept any of `+HHMM`, `-HHMM`, or `_HHMM`
+        // in the last five characters of the stem.
         let stem = out.trim_end_matches(".log");
         let last5 = &stem[stem.len() - 5..];
         assert!(
-            last5.starts_with('+') || last5.starts_with('-'),
+            last5.starts_with('+') || last5.starts_with('-') || last5.starts_with('_'),
             "no timezone offset in {out}"
+        );
+        assert!(
+            last5[1..].chars().all(|c| c.is_ascii_digit()),
+            "timezone digits not all numeric in {out}"
         );
     }
 
